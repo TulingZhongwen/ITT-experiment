@@ -378,3 +378,140 @@ print(f"Noise mean Θ = {np.mean(Theta_n):.4f}")
 所有代码均可在普通计算机运行，无需特殊硬件。
 
 许可证：文档采用 CC BY 4.0，代码采用 MIT。
+
+---
+
+以下为模拟数据验证（完整脚本）
+
+```python
+"""
+itt_stage1_simulation.py
+验证ITT算法在Lorenz系统和白噪声上的表现。
+输出Λ、p值、并绘图。
+"""
+import numpy as np
+from scipy.integrate import solve_ivp
+from scipy.spatial import KDTree
+import matplotlib.pyplot as plt
+
+# ------------------- ITT核心函数 -------------------
+def reconstruct(x, tau, d):
+    """延迟嵌入"""
+    n = len(x) - (d-1)*tau
+    indices = np.arange(d)[:, None]*tau + np.arange(n)
+    return x[indices].T
+
+def false_nearest_neighbor(x, max_dim=20, tau=1, rtol=10):
+    """计算假近邻比例，返回最优维数"""
+    n = len(x)
+    fnn_ratio = []
+    for dim in range(1, max_dim+1):
+        if n <= (dim+1)*tau:
+            break
+        y = reconstruct(x, tau, dim)
+        y_next = reconstruct(x, tau, dim+1)
+        dist = np.linalg.norm(y[:, :-1] - y[:, 1:], axis=1)
+        dist_next = np.linalg.norm(y_next[:, :-1] - y_next[:, 1:], axis=1)
+        ratio = np.sum(dist_next > rtol * dist) / len(dist)
+        fnn_ratio.append(ratio)
+        if ratio < 0.01:
+            return dim
+    return max_dim
+
+def mutual_info_first_min(x, max_lag=50):
+    """互信息第一极小值作为延迟tau"""
+    from sklearn.metrics import mutual_info_score
+    mi = []
+    for lag in range(1, max_lag+1):
+        mi.append(mutual_info_score(x[:-lag], x[lag:]))
+    # 寻找第一个极小值
+    for i in range(2, len(mi)-1):
+        if mi[i] < mi[i-1] and mi[i] < mi[i+1]:
+            return i
+    return max_lag//2
+
+def compute_lambda(traj, dt, n_neighbors=30):
+    T, d = traj.shape
+    n_neighbors = max(2*d, n_neighbors)
+    if T <= n_neighbors:
+        return np.nan
+    traces = []
+    tree = KDTree(traj)
+    for t in range(T-1):
+        dist, idx = tree.query(traj[t], k=n_neighbors+1)
+        neighbors = idx[1:]
+        X = traj[neighbors]
+        Y = traj[neighbors+1] - X
+        if X.shape[0] < d:
+            continue
+        J, _, _, _ = np.linalg.lstsq(X, Y, rcond=None)
+        J = J.T
+        traces.append(np.abs(np.trace(J)) / d)
+    return np.mean(traces) if traces else np.nan
+
+def lambda_significance(signal, tau, d, dt, n_shuffle=100):
+    traj = reconstruct(signal, tau, d)
+    lam_real = compute_lambda(traj, dt)
+    lam_shuf = []
+    for _ in range(n_shuffle):
+        shuf = np.random.permutation(signal)
+        tr = reconstruct(shuf, tau, d)
+        lam_shuf.append(compute_lambda(tr, dt))
+    p = (np.sum(np.array(lam_shuf) >= lam_real) + 1) / (n_shuffle+1)
+    return lam_real, np.percentile(lam_shuf, 95), p
+
+# ------------------- 生成混沌系统（Lorenz） -------------------
+def lorenz(t, state, sigma=10, beta=8/3, rho=28):
+    x, y, z = state
+    return [sigma*(y-x), x*(rho-z)-y, x*y - beta*z]
+
+def generate_lorenz(dt=0.01, tmax=100, init=(1,1,1)):
+    t_span = (0, tmax)
+    t_eval = np.arange(0, tmax, dt)
+    sol = solve_ivp(lorenz, t_span, init, t_eval=t_eval, method='RK45')
+    return sol.y[0]  # 取x分量
+
+# ------------------- 主程序 -------------------
+if __name__ == '__main__':
+    # 参数
+    dt = 0.01
+    tmax = 100
+    fs = 1/dt
+
+    # 生成 Lorenz 和白噪声
+    lorenz_sig = generate_lorenz(dt, tmax)
+    white_noise = np.random.randn(len(lorenz_sig))
+
+    # 计算延迟和维数（用Lorenz的数据决定，两个信号共用相同参数）
+    tau = mutual_info_first_min(lorenz_sig, max_lag=50)
+    d = false_nearest_neighbor(lorenz_sig, tau=tau, max_dim=15)
+
+    print(f"延迟 tau={tau}, 嵌入维数 d={d}")
+
+    # 分析 Lorenz
+    lam_l, thresh_l, p_l = lambda_significance(lorenz_sig, tau, d, dt)
+    # 分析白噪声
+    lam_w, thresh_w, p_w = lambda_significance(white_noise, tau, d, dt)
+
+    print("\n===== 阶段一结果 =====")
+    print(f"Lorenz系统: Λ={lam_l:.4f}, 95%阈值={thresh_l:.4f}, p={p_l:.4f} -> 显著高于噪声: {p_l<0.05}")
+    print(f"白噪声:    Λ={lam_w:.4f}, 95%阈值={thresh_w:.4f}, p={p_w:.4f} -> 显著高于噪声: {p_w<0.05}")
+
+    # 绘图
+    fig, axes = plt.subplots(2, 2, figsize=(10, 6))
+    axes[0,0].plot(lorenz_sig[:2000], 'r-', lw=0.5)
+    axes[0,0].set_title('Lorenz (x分量)')
+    axes[0,1].hist(lorenz_sig, bins=50, color='red', alpha=0.7)
+    axes[0,1].set_title('Lorenz 分布')
+    axes[1,0].plot(white_noise[:2000], 'k-', lw=0.5)
+    axes[1,0].set_title('白噪声')
+    axes[1,1].hist(white_noise, bins=50, color='gray', alpha=0.7)
+    axes[1,1].set_title('白噪声 分布')
+    plt.tight_layout()
+    plt.savefig('stage1_results.png')
+    plt.show()
+```
+
+运行方式：
+python itt_stage1_simulation.py
+预期输出：Lorenz的p值应远小于0.05，白噪声的p值应接近1。
