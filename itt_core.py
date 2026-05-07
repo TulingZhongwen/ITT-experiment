@@ -17,7 +17,7 @@ def reconstruct(x, tau, d):
         raise ValueError(f"Not enough data for tau={tau}, d={d}")
     indices = np.arange(d)[:, None] * tau + np.arange(n)
     return x[indices].T
-
+    
 # ---------- 2. 延迟 tau 估计 ----------
 def mutual_info_first_min(x, max_lag=50):
     """Estimate tau as first minimum of mutual information."""
