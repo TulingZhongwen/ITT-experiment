@@ -1,5 +1,5 @@
 """
-ITT Stage 3: Self-force direction rule (Prediction 3) – Final integrated version
+ITT Stage 3: Self-force direction rule (Prediction 3) 
 Includes: robust gradient estimation (local linear regression + smoothing),
           Savitzky-Golay velocity, positive/negative mock data, permutation test.
 This file is independent of Stage 1/2 and relies on itt_core.py only for basic helpers.
