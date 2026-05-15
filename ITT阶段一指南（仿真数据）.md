@@ -1,7 +1,7 @@
 ITT 版本五：标准化算法实现指南（阶段一）
 
-版本：1.1
-关联理论：惯性-张力理论 (ITT) Version 5 (DOI: 10.5281/zenodo.19533323)
+版本：2.0
+关联理论：惯性-张力理论 (ITT) 论文v1 (DOI：)
 许可证：文档 CC BY 4.0 / 代码 MIT
 
 本指南提供可独立复现的算法流程，包含完整可运行的 Python 代码。只需安装依赖库，复制代码即可执行。
@@ -142,11 +142,11 @@ def compute_lamda(state_space, n_neighbors=30, sample_ratio=0.2):
     return np.mean(lambdas) if lambdas else 0.0
 ```
 
-2.2 噪声基准  \Lambda_{\text{noise}} （置换检验）
+2.2 噪声基准 Λ_noise（IAAFT置换检验）
 
 ```python
-def compute_lamda_shuffled(x, dim, delay, n_shuffle=100, n_neighbors=30):
-    """对原始时间序列随机重排，计算打乱后的 Λ 分布"""
+def compute_lamda_surrogate(x, dim, delay, n_surrogate=100, n_neighbors=30):
+    """对原始时间序列使用IAAFT（迭代幅度调整傅里叶变换）生成保持功率谱结构的surrogate数据，完全破坏时间因果结构"""
     lamdas_shuffled = []
     for _ in range(n_shuffle):
         x_shuffled = np.random.permutation(x)
@@ -448,15 +448,15 @@ def compute_lambda(traj, dt, n_neighbors=30):
         traces.append(np.abs(np.trace(J)) / d)
     return np.mean(traces) if traces else np.nan
 
-def lambda_significance(signal, tau, d, dt, n_shuffle=100):
+def lambda_significance(signal, tau, d, dt, n_surrogate=100):
     traj = reconstruct(signal, tau, d)
     lam_real = compute_lambda(traj, dt)
     lam_shuf = []
-    for _ in range(n_shuffle):
+    for _ in range(n_surrogate):
         shuf = np.random.permutation(signal)
         tr = reconstruct(shuf, tau, d)
         lam_shuf.append(compute_lambda(tr, dt))
-    p = (np.sum(np.array(lam_shuf) >= lam_real) + 1) / (n_shuffle+1)
+    p = (np.sum(np.array(lam_shuf) >= lam_real) + 1) / (n_surrogate+1)
     return lam_real, np.percentile(lam_shuf, 95), p
 
 # ------------------- 生成混沌系统（Lorenz） -------------------
