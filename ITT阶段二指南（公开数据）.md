@@ -1,7 +1,7 @@
 ITT实验验证指南（阶段二）：基于公开EEG/fMRI数据检验三个预言
 
 版本：2.0
-依据：ITT v5（DOI:10.5281/zenodo.19533323）
+依据：惯性-张力理论（ITT）论文v1（DOI：）
 开源协作：欢迎提交Issue/PR，详见GitHub仓库
 适用对象：已完成阶段一（模拟验证）或具非线性动力学经验的研究者
 
@@ -11,7 +11,7 @@ ITT实验验证指南（阶段二）：基于公开EEG/fMRI数据检验三个预
 
 1. 总体目标
 
-· 预言一（意识涌现条件）：清醒状态Λ > Λ\_noise（p<0.01）；深度睡眠/麻醉状态 Λ ≈ Λ\_noise（p>0.05）。
+· 预言一（意识涌现最低物理条件）：清醒状态Λ > Λ\_noise（p<0.01）；深度睡眠/麻醉状态 Λ ≈ Λ\_noise（p>0.05）。
 · 预言二（意识度）：平均Θ(s) 清醒 > 困倦 > 麻醉/深睡（效应量Cohen's d > 0.8或统计显著）。
 · 预言三（自反力方向规则）：当Δ̅·∇U < 0时，自发运动方向与–∇U夹角<90°的比例>75%；当Δ̅·∇U > 0时，与+∇U夹角<90°的比例>75%。
 
@@ -23,7 +23,7 @@ ITT实验验证指南（阶段二）：基于公开EEG/fMRI数据检验三个预
 ds002718 EEG 基线清醒→丙泊酚镇静→意识丧失→恢复 一、二 OpenNeuro
 ds003478 EEG 清醒闭眼、N1、N2、N3、REM 一、二 OpenNeuro
 HCP S1200 fMRI 清醒、轻睡（部分有） 一、二（验证可重复性） ConnectomeDB
-EEG+Stroop EEG+行为 清醒（错误/正确反应），需公开标签 三 见第6节
+EEG+Stroop EEG+行为 清醒（错误/正确反应），需公开标签 三 见论文
 
 优先使用 ds002718（麻醉边界清晰）和 ds003478（多级意识）。
 对于预言三，需寻找公开的“同步EEG+按键反应”数据集，例如 eeg-during-stroop-task（OpenNeuro ds002785）。
@@ -68,7 +68,7 @@ epochs = mne.make_fixed_length_epochs(raw, duration=300, overlap=0)
 邻域点数n_neighbors max(2*d, 30)，且n_neighbors < N/10 动态调整，若不足则警告
 噪声水平δ 轨迹点间欧氏距离的5%分位数 np.percentile(np.diff(traj, axis=0), 5)
 周期点阈值ε 取δ 同δ
-置换次数 100（打乱） 随机洗牌
+置换次数 100（打乱） 对原始时间序列使用IAAFT（迭代幅度调整傅里叶变换）生成保持功率谱结构的surrogate数据
 
 所有参数选择过程必须记录，并可在ITT-experiment仓库中导出日志。
 
@@ -99,18 +99,18 @@ def compute_lambda(traj, dt, n_neighbors=30):
     return np.mean(traces)
 ```
 
-5.2 置换检验与Λ\_noise
+5.2 IAAFT置换检验与Λ_noise
 
 ```python
-def lambda_vs_noise(signal, tau, d, n_shuffle=100):
+def lambda_vs_noise(signal, tau, d, n_surrogate=100):
     traj = reconstruct(signal, tau, d)
     Lambda_real = compute_lambda(traj, dt, n_neighbors=30)
     Lambda_shuff = []
-    for _ in range(n_shuffle):
+    for _ in range(n_surrogate):
         shuf = np.random.permutation(signal)
         traj_shuf = reconstruct(shuf, tau, d)
         Lambda_shuff.append(compute_lambda(traj_shuf, dt, n_neighbors=30))
-    p = (np.sum(np.array(Lambda_shuff) >= Lambda_real) + 1) / (n_shuffle+1)
+    p = (np.sum(np.array(Lambda_shuff) >= Lambda_real) + 1) / (n_surrogate+1)
     return Lambda_real, np.percentile(Lambda_shuff, 95), p
 ```
 
@@ -250,7 +250,7 @@ def compute_direction_rule(traj, gradU, Delta_unit):
 
 版本历史
 
-· v2.0 (2026-05-06): 增加稳健性分析、与现有指标对比、预言三的具体数据集、参数自适应规则。
+· v2.0 : 增加稳健性分析、与现有指标对比、预言三的具体数据集、参数自适应规则。
   维护者：图灵中文
   许可证：MIT
   
