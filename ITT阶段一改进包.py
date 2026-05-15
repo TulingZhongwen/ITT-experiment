@@ -1,6 +1,6 @@
 """
 ITT Stage 1: Simulation validation (Lorenz vs white noise)
-Uses improved core functions.
+Uses improved core functions v2.0.
 """
 
 import numpy as np
@@ -29,8 +29,9 @@ if __name__ == "__main__":
     tau = mutual_info_first_min(lorenz_sig, max_lag=50)
     d = false_nearest_neighbor(lorenz_sig, tau=tau, max_dim=15)
 
-    lam_l, thresh_l, p_l = lambda_significance(lorenz_sig, tau, d, dt)
-    lam_w, thresh_w, p_w = lambda_significance(white_noise, tau, d, dt)
+    # 修改：lambda_significance现在返回4个值，用_忽略最后一个
+    lam_l, thresh_l, p_l, _ = lambda_significance(lorenz_sig, tau, d, dt)
+    lam_w, thresh_w, p_w, _ = lambda_significance(white_noise, tau, d, dt)
 
     print("=== Stage 1 Results ===")
     print(f"Lorenz: Λ={lam_l:.4f}, 95% threshold={thresh_l:.4f}, p={p_l:.4f} -> significant: {p_l<0.05}")
