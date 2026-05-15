@@ -61,9 +61,9 @@ def main():
     delta_b = np.percentile(np.abs(np.diff(sig_b)), 5)
     delta_l = np.percentile(np.abs(np.diff(sig_l)), 5)
 
-    # Compute Λ and significance
-    lam_b, _, p_b = lambda_significance(sig_b, tau, d, dt)
-    lam_l, _, p_l = lambda_significance(sig_l, tau, d, dt)
+    # 修改：lambda_significance现在返回4个值，用_忽略最后一个
+    lam_b, _, p_b, _ = lambda_significance(sig_b, tau, d, dt)
+    lam_l, _, p_l, _ = lambda_significance(sig_l, tau, d, dt)
 
     # Compute Θ
     traj_b = reconstruct(sig_b, tau, d)
