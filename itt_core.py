@@ -56,15 +56,15 @@ def mutual_info_block_length(x, max_lag=200, bin_width_factor=0.3):
     std_x = np.std(x)
     if std_x == 0:
         return 1
-    
+
     bin_width = bin_width_factor * std_x
     n_bins = max(10, int((np.max(x) - np.min(x)) / bin_width))
     n_bins = min(n_bins, 100)  # 上限
-    
+
     def discretize(a):
         bins = np.linspace(np.min(a), np.max(a), n_bins + 1)
         return np.digitize(a, bins) - 1
-    
+
     mi = []
     for lag in range(1, max_lag+1):
         a, b = x[:-lag], x[lag:]
@@ -85,18 +85,18 @@ def mutual_info_block_length(x, max_lag=200, bin_width_factor=0.3):
                 if joint[i,j] > 0 and pa[i] > 0 and pb[j] > 0:
                     mi_val += joint[i,j] * np.log(joint[i,j] / (pa[i]*pb[j]))
         mi.append(mi_val)
-    
+
     # 找第一极小值
     for i in range(2, len(mi)-1):
         if mi[i] < mi[i-1] and mi[i] < mi[i+1]:
             return max(1, i)
-    
+
     # 备选：下降到初始值的0.3倍
     target = mi[0] * 0.3
     for i, m in enumerate(mi):
         if m < target:
             return max(1, i + 1)
-    
+
     return max(1, max_lag // 10)
 
 # ============================================================
@@ -156,8 +156,12 @@ def compute_lambda(traj, dt, n_neighbors=None, ridge_alpha=0.01):
     for i in range(T-1):
         dist, idx = tree.query(traj[i], k=n_neighbors+1)
         neighbors = idx[1:]
-        X = traj[neighbors] - traj[i]
-        Y = traj[neighbors+1] - traj[neighbors]
+        # 过滤掉会导致越界的邻居
+        valid_neighbors = neighbors[neighbors < T-1]
+        if len(valid_neighbors) < d:
+            continue
+        X = traj[valid_neighbors] - traj[i]
+        Y = traj[valid_neighbors+1] - traj[valid_neighbors]
         _, s, _ = np.linalg.svd(X, full_matrices=False)
         cond = s[0] / s[-1] if s[-1] > 0 else 1e16
         if cond > 1e6:
@@ -169,7 +173,7 @@ def compute_lambda(traj, dt, n_neighbors=None, ridge_alpha=0.01):
             J, _, _, _ = np.linalg.lstsq(X, Y, rcond=None)
             J = J.T
         traces.append(np.abs(np.trace(J)) / d)
-    return np.mean(traces)
+    return np.mean(traces) if traces else 0.0
 
 # ============================================================
 # 6. IAAFT Surrogate（新增，替换简单洗牌）
@@ -179,44 +183,44 @@ def iaaft_surrogate(x, n_iter=10):
     """
     迭代幅度调整傅里叶变换 (IAAFT)
     保持功率谱结构，破坏相位关系。
-    
+
     参数:
-        x: 一维时间序列
-        n_iter: 迭代次数（默认10次）
+    x: 一维时间序列
+    n_iter: 迭代次数（默认10次）
     返回:
-        surrogate: 与x长度相同的surrogate序列
+    surrogate: 与x长度相同的surrogate序列
     """
     n = len(x)
-    
+
     # FFT of original
     fft_vals = np.fft.rfft(x)
     amplitudes = np.abs(fft_vals)
-    
+
     # Random phases
     phases = np.random.uniform(0, 2*np.pi, len(amplitudes))
     phases[0] = 0  # DC component
-    
+
     # Initial surrogate with random phases but original amplitudes
     new_fft = amplitudes * np.exp(1j * phases)
     surrogate = np.fft.irfft(new_fft, n=n)
-    
+
     # Sort original for amplitude matching
     sorted_orig = np.sort(x)
-    
+
     # Iterative refinement
     for _ in range(n_iter):
         # Rank-based amplitude adjustment
         rank = np.argsort(np.argsort(surrogate))
         surrogate = sorted_orig[rank]
-        
+
         # Re-adjust phases to match original power spectrum
         fft_s = np.fft.rfft(surrogate)
         surrogate = np.fft.irfft(amplitudes * np.exp(1j * np.angle(fft_s)), n=n)
-    
+
     # Final amplitude matching
     rank = np.argsort(np.argsort(surrogate))
     surrogate = sorted_orig[rank]
-    
+
     return surrogate
 
 # ============================================================
@@ -230,19 +234,19 @@ def lambda_significance(signal, tau, d, dt, n_surrogates=100):
     """
     traj = reconstruct(signal, tau, d)
     lam_real = compute_lambda(traj, dt)
-    
+
     lam_surr = []
     for _ in range(n_surrogates):
         # IAAFT: 对每个维度分别处理
         x_surr = np.zeros_like(signal)
         x_surr = iaaft_surrogate(signal, n_iter=10)
-        
+
         traj_surr = reconstruct(x_surr, tau, d)
         lam_surr.append(compute_lambda(traj_surr, dt))
-    
+
     lam_noise = np.percentile(lam_surr, 95)
     p = (np.sum(np.array(lam_surr) >= lam_real) + 1) / (n_surrogates + 1)
-    
+
     return lam_real, lam_noise, p, lam_surr
 
 # ============================================================
@@ -287,25 +291,25 @@ def compute_theta(traj, delta, c=2.0, time_window=5000, verify_steps=5):
 def kde_silverman(data):
     """
     各向同性高斯核密度估计。
-    
+
     参数:
-        data: (N, d) 状态空间轨迹
+    data: (N, d) 状态空间轨迹
     返回:
-        p: (N,) 每个点的概率密度估计
-        h: float Silverman带宽
+    p: (N,) 每个点的概率密度估计
+    h: float Silverman带宽
     """
     N, d = data.shape
-    
+
     # Silverman带宽
     sigma = np.mean(np.std(data, axis=0))
     h = (4 / (d + 2)) ** (1 / (d + 4)) * sigma * N ** (-1 / (d + 4))
-    
+
     # 高斯核密度估计
     p = np.zeros(N)
     for i in range(N):
         dists = np.linalg.norm(data - data[i], axis=1)
         p[i] = np.mean(np.exp(-0.5 * (dists / h) ** 2)) / ((2 * np.pi * h**2) ** (d/2))
-    
+
     return p, h
 
 def kde_silverman_fast(data, h=None):
@@ -313,11 +317,11 @@ def kde_silverman_fast(data, h=None):
     快速版本：使用KDTree近似（大数据集）
     """
     N, d = data.shape
-    
+
     if h is None:
         sigma = np.mean(np.std(data, axis=0))
         h = (4 / (d + 2)) ** (1 / (d + 4)) * sigma * N ** (-1 / (d + 4))
-    
+
     tree = KDTree(data)
     p = np.zeros(N)
     for i in range(N):
@@ -325,7 +329,7 @@ def kde_silverman_fast(data, h=None):
         idx = tree.query_ball_point(data[i], r=3*h)
         dists = np.linalg.norm(data[idx] - data[i], axis=1)
         p[i] = np.sum(np.exp(-0.5 * (dists / h) ** 2)) / (N * (2 * np.pi * h**2) ** (d/2))
-    
+
     return p, h
 
 # ============================================================
@@ -335,59 +339,59 @@ def kde_silverman_fast(data, h=None):
 def gradient_u_local_linear(data, h=None, epsilon=1e-6, k_neighbors=None):
     """
     用局部线性回归估计张力势梯度∇U。
-    
+
     参数:
-        data: (N, d) 状态空间轨迹
-        h: 核密度带宽（None则自动计算Silverman）
-        epsilon: 岭回归正则化系数（相对于最大特征值的比例）
-        k_neighbors: 近邻数（None则自动选择）
+    data: (N, d) 状态空间轨迹
+    h: 核密度带宽（None则自动计算Silverman）
+    epsilon: 岭回归正则化系数（相对于最大特征值的比例）
+    k_neighbors: 近邻数（None则自动选择）
     返回:
-        gradU: (N, d) 每个点的∇U估计
-        p: (N,) 概率密度
-        h_used: 实际使用的带宽
+    gradU: (N, d) 每个点的∇U估计
+    p: (N,) 概率密度
+    h_used: 实际使用的带宽
     """
     N, d = data.shape
-    
+
     # 核密度估计
     p, h_used = kde_silverman_fast(data, h)
-    
+
     # 对数密度
     log_p = np.log(p + 1e-12)
-    
+
     # 确定近邻数
     if k_neighbors is None:
         k_neighbors = min(max(2*d, 30), N-1)
-    
+
     tree = KDTree(data)
     gradU = np.zeros_like(data)
-    
+
     for i in range(N):
         dist, idx = tree.query(data[i], k=k_neighbors+1)
         neighbors = idx[1:]  # 排除自身
-        
+
         # 加权最小二乘
         X = data[neighbors] - data[i]  # (k, d)
         y = log_p[neighbors] - log_p[i]  # (k,)
-        
+
         # 权重（高斯核）
         weights = np.exp(-0.5 * (dist[1:] / h_used) ** 2)
         W = np.diag(weights)
-        
+
         # 加权最小二乘
         Xw = X.T @ W  # (d, k)
         XWX = Xw @ X  # (d, d)
         XWy = Xw @ y  # (d,)
-        
+
         # 岭回归正则化
         lambda_max = np.max(np.linalg.eigvalsh(XWX))
         reg = epsilon * lambda_max * np.eye(d)
-        
+
         try:
             grad = np.linalg.solve(XWX + reg, XWy)
             gradU[i] = -grad  # U = -log p, so ∇U = -∇log p
         except np.linalg.LinAlgError:
             gradU[i] = np.zeros(d)
-    
+
     return gradU, p, h_used
 
 # ============================================================
@@ -397,18 +401,18 @@ def gradient_u_local_linear(data, h=None, epsilon=1e-6, k_neighbors=None):
 def block_bootstrap(sigma_sequence, block_length, n_bootstrap=1000):
     """
     块状Bootstrap：对符号序列进行有放回块重抽样。
-    
+
     参数:
-        sigma_sequence: (T,) 方向规则符号序列（+1或-1）
-        block_length: int 块长度
-        n_bootstrap: int Bootstrap次数
+    sigma_sequence: (T,) 方向规则符号序列（+1或-1）
+    block_length: int 块长度
+    n_bootstrap: int Bootstrap次数
     返回:
-        R_star: (n_bootstrap,) Bootstrap一致性比例分布
-        ci_lower, ci_upper: 95%置信区间
+    R_star: (n_bootstrap,) Bootstrap一致性比例分布
+    ci_lower, ci_upper: 95%置信区间
     """
     T = len(sigma_sequence)
     n_blocks = T // block_length
-    
+
     if n_blocks < 2:
         # 块长度太大，退化为简单Bootstrap
         R_star = []
@@ -418,14 +422,14 @@ def block_bootstrap(sigma_sequence, block_length, n_bootstrap=1000):
         R_star = np.array(R_star)
         ci_lower, ci_upper = np.percentile(R_star, [2.5, 97.5])
         return R_star, ci_lower, ci_upper
-    
+
     # 分块
     blocks = []
     for i in range(n_blocks):
         start = i * block_length
         end = min(start + block_length, T)
         blocks.append(sigma_sequence[start:end])
-    
+
     R_star = []
     for _ in range(n_bootstrap):
         # 有放回抽取块
@@ -433,14 +437,14 @@ def block_bootstrap(sigma_sequence, block_length, n_bootstrap=1000):
         for _ in range(n_blocks):
             idx = np.random.randint(0, len(blocks))
             sampled_blocks.append(blocks[idx])
-        
+
         # 拼接
         sample = np.concatenate(sampled_blocks)[:T]
         R_star.append(np.mean(sample > 0))
-    
+
     R_star = np.array(R_star)
     ci_lower, ci_upper = np.percentile(R_star, [2.5, 97.5])
-    
+
     return R_star, ci_lower, ci_upper
 
 # ============================================================
@@ -450,12 +454,12 @@ def block_bootstrap(sigma_sequence, block_length, n_bootstrap=1000):
 def effect_size_tier(R):
     """
     方向规则一致性比例的效应量分层。
-    
+
     参数:
-        R: float 一致性比例
+    R: float 一致性比例
     返回:
-        tier: str 分层标签
-        description: str 描述
+    tier: str 分层标签
+    description: str 描述
     """
     if R > 0.75:
         return "strong_support", "强支持（ITT核心预测）"
@@ -473,21 +477,21 @@ def effect_size_tier(R):
 def check_high_dim_degradation(N, d, min_samples_per_dim=100):
     """
     检查主轨道密度估计是否应降级为简化轨道。
-    
+
     参数:
-        N: int 轨迹点数
-        d: int 嵌入维数
-        min_samples_per_dim: int 每维最小样本数
+    N: int 轨迹点数
+    d: int 嵌入维数
+    min_samples_per_dim: int 每维最小样本数
     返回:
-        should_degrade: bool 是否降级
-        N_eff: float 有效样本量
-        N_min: float 最小要求
+    should_degrade: bool 是否降级
+    N_eff: float 有效样本量
+    N_min: float 最小要求
     """
     N_eff = N / (2 ** d)
     N_min = min_samples_per_dim * d
-    
+
     should_degrade = N_eff < N_min
-    
+
     return should_degrade, N_eff, N_min
 
 # ============================================================
@@ -501,8 +505,27 @@ def false_nearest_neighbor(x, tau, max_dim=20, rtol=10):
             break
         y = reconstruct(x, tau, dim)
         y_next = reconstruct(x, tau, dim+1)
-        dist = np.linalg.norm(y[:, :-1] - y[:, 1:], axis=1)
-        dist_next = np.linalg.norm(y_next[:, :-1] - y_next[:, 1:], axis=1)
+
+        # 确保比较的点数一致
+        n_pts = min(y.shape[0], y_next.shape[0])
+        y = y[:n_pts]
+        y_next = y_next[:n_pts]
+
+        # 计算邻居距离（排除最后一个点，因为它没有后续点）
+        if n_pts < 2:
+            break
+
+        dist = np.linalg.norm(y[:-1] - y[1:], axis=1)
+        dist_next = np.linalg.norm(y_next[:-1] - y_next[1:], axis=1)
+
+        # 确保维度一致
+        min_len = min(len(dist), len(dist_next))
+        dist = dist[:min_len]
+        dist_next = dist_next[:min_len]
+
+        if len(dist) == 0:
+            break
+
         ratio = np.sum(dist_next > rtol * dist) / len(dist)
         if ratio < 0.01:
             return dim
