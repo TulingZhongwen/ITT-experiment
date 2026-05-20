@@ -214,13 +214,13 @@ R = mean(sigma > 0)
 
 若使用本脚本包进行发表，请引用：
 
-1. 原始论文: Tuling Zhongwen (2026). ITT: An Axiomatic Physical Framework for Consciousness. 预印本 v1.0（未上传arXiv）
+1. 原始论文: Tuling Zhongwen (2026). https://doi.org/10.5281/zenodo.20204270
 2. 数据集: OpenNeuro ds005620. DOI: 10.18112/openneuro.ds005620.v1.0.0
 
 ## 联系方式
 
 - 代码仓库: https://github.com/TulingZhongwen/ITT-experiment
-- 论文预印本: 预印本 v1.0（未上传arXiv）
+- 论文预印本: 预印本 v1.0
 
 ## 许可
 
