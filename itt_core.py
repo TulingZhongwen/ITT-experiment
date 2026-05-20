@@ -7,8 +7,9 @@ ITT Core Module v2.0 — Inertia-Tension Theory
 - 新增互信息块长度计算
 - 新增高维降级判断
 - 统一效应量分层输出
+- **修复 false_nearest_neighbor 函数（标准FNN实现）**
 
-Author: Tuling Zhongwen (图灵中文)
+Author: 图灵中文
 Version: 2.0
 """
 
@@ -495,38 +496,56 @@ def check_high_dim_degradation(N, d, min_samples_per_dim=100):
     return should_degrade, N_eff, N_min
 
 # ============================================================
-# 14. 辅助：全局维数（不变）
+# 14. 修复：标准假近邻法（FNN）
 # ============================================================
 
-def false_nearest_neighbor(x, tau, max_dim=20, rtol=10):
-    """全局嵌入维数FNN"""
+def false_nearest_neighbor(x, tau, max_dim=10, rtol=10, atol=1e-8):
+    """
+    标准假近邻法 (False Nearest Neighbors) 估计嵌入维数。
+    对于每个点，在 d 维空间中找到最近邻（排除自身），
+    检查在 d+1 维中该邻居的距离是否显著增大。
+    
+    参数:
+    x: 一维时间序列
+    tau: 延迟
+    max_dim: 最大嵌入维数
+    rtol: 距离比率阈值（典型值 10~15）
+    atol: 绝对容差，避免分母过小
+    
+    返回:
+    dim: 估计的嵌入维数
+    """
+    N = len(x)
     for dim in range(1, max_dim+1):
-        if len(x) <= (dim+1)*tau:
-            break
-        y = reconstruct(x, tau, dim)
-        y_next = reconstruct(x, tau, dim+1)
-
-        # 确保比较的点数一致
-        n_pts = min(y.shape[0], y_next.shape[0])
-        y = y[:n_pts]
-        y_next = y_next[:n_pts]
-
-        # 计算邻居距离（排除最后一个点，因为它没有后续点）
+        # 重构 dim 维和 dim+1 维轨迹
+        n_pts = N - (dim-1)*tau
         if n_pts < 2:
-            break
-
-        dist = np.linalg.norm(y[:-1] - y[1:], axis=1)
-        dist_next = np.linalg.norm(y_next[:-1] - y_next[1:], axis=1)
-
-        # 确保维度一致
-        min_len = min(len(dist), len(dist_next))
-        dist = dist[:min_len]
-        dist_next = dist_next[:min_len]
-
-        if len(dist) == 0:
-            break
-
-        ratio = np.sum(dist_next > rtol * dist) / len(dist)
-        if ratio < 0.01:
+            return dim
+        traj_dim = reconstruct(x, tau, dim)
+        if dim == max_dim:
+            return dim
+        traj_dim1 = reconstruct(x, tau, dim+1)
+        # 取相同点数
+        n = min(len(traj_dim), len(traj_dim1))
+        traj_dim = traj_dim[:n]
+        traj_dim1 = traj_dim1[:n]
+        
+        false_count = 0
+        for i in range(n):
+            # 在 dim 维中找最近邻（排除自身）
+            dists = np.linalg.norm(traj_dim - traj_dim[i], axis=1)
+            dists[i] = np.inf
+            if np.all(dists == np.inf):
+                continue
+            nearest = np.argmin(dists)
+            R_d = dists[nearest]
+            if R_d < atol:
+                continue
+            # 在 dim+1 维中计算与同一邻居的距离
+            R_d1 = np.linalg.norm(traj_dim1[i] - traj_dim1[nearest])
+            if R_d1 / R_d > rtol:
+                false_count += 1
+        fnn_ratio = false_count / n
+        if fnn_ratio < 0.01:  # 假近邻比例低于1%
             return dim
     return max_dim
