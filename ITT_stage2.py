@@ -2,7 +2,7 @@
 ITT Stage 2: Consciousness Degree Ψ(s) = Θ(s) Validation
 验证可访问自指距离的计算和排序逻辑
 
-Author: AI Assistant (Kimi)
+Author: 图灵中文
 Date: 2026-05-18
 """
 
